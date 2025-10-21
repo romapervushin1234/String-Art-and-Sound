@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>String Art – Tone.js HiraJoshi Sound with Responsive Canvas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
+<style>
+  body {
+    background: black;
+    margin: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: white;
+    font-family: sans-serif;
+  }
+  #controls {
+    margin: 10px;
+  }
+  select {
+    margin: 0 8px;
+    padding: 4px 8px;
+    font-size: 1rem;
+  }
+</style>
+</head>
+<body>
+<div id="controls">
+  <label for="instrument">Instrument:</label>
+  <select id="instrument">
+    <option value="sine">Kalimba</option>
+    <option value="triangle">Kantele</option>
+    <option value="piano">Piano</option>
+  </select>
+
+  <label for="scale">Scale:</label>
+  <select id="scale">
+    <option value="hiraJoshi">HiraJoshi (Default)</option>
+    <option value="kumoi">Kumoi</option>
+    <option value="majorPentatonic">Major Pentatonic</option>
+    <option value="minorPentatonic">Minor Pentatonic</option>
+    <option value="minor">Minor</option>
+  </select>
+
+  <label for="key">Key:</label>
+  <select id="key">
+    <option value="C">C</option>
+    <option value="C#">C#</option>
+    <option value="D" selected>D</option>
+    <option value="D#">D#</option>
+    <option value="E">E</option>
+    <option value="F">F</option>
+    <option value="F#">F#</option>
+    <option value="G">G</option>
+    <option value="G#">G#</option>
+    <option value="A">A</option>
+    <option value="A#">A#</option>
+    <option value="B">B</option>
+  </select>
+</div>
+
+<script>
+// ==========================
+// SOUND SETUP (Tone.js)
+// ==========================
+
+// Scales definitions (intervals in semitones relative to root note)
+const scaleIntervals = {
+  hiraJoshi: [0, 1, 4, 5, 6],           // D – Eb – G – A – Bb
+  kumoi: [0, 2, 3, 7, 9],
+  majorPentatonic: [0, 2, 4, 7, 9],
+  minorPentatonic: [0, 3, 5, 7, 10],
+  minor: [0, 2, 3, 5, 7, 8, 10]
+};
+
+const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// Instruments oscillator types or synth presets
+const instruments = {
+  sine: { oscillator: { type: 'sine' }, name: "Kalimba" },
+  triangle: { oscillator: { type: 'triangle' }, name: "Kantele" },
+  piano: 'piano' // special case, handled differently
+};
+
+let currentInstrument = 'sine';
+
+// PolySynth with reverb and delay
+const reverb = new Tone.Reverb({ decay: 4, wet: 0.5 }).toDestination();
+const delay = new Tone.FeedbackDelay("8n", 0.25).connect(reverb);
+
+let synth;
+
+function createSynth(type) {
+  if (type === 'piano') {
+    // Use Tone.Sampler for piano (basic acoustic piano sample)
+    return new Tone.Sampler({
+      urls: {
+        "A0": "A0.mp3",
+        "C1": "C1.mp3",
+        "D#1": "Ds1.mp3",
+        "F#1": "Fs1.mp3",
+        "A1": "A1.mp3",
+        "C2": "C2.mp3",
+        "D#2": "Ds2.mp3",
+        "F#2": "Fs2.mp3",
+        "A2": "A2.mp3",
+        "C3": "C3.mp3",
+        "D#3": "Ds3.mp3",
+        "F#3": "Fs3.mp3",
+        "A3": "A3.mp3",
+        "C4": "C4.mp3",
+        "D#4": "Ds4.mp3",
+        "F#4": "Fs4.mp3",
+        "A4": "A4.mp3",
+        "C5": "C5.mp3",
+        "D#5": "Ds5.mp3",
+        "F#5": "Fs5.mp3",
+        "A5": "A5.mp3",
+        "C6": "C6.mp3",
+        "D#6": "Ds6.mp3",
+        "F#6": "Fs6.mp3",
+        "A6": "A6.mp3",
+        "C7": "C7.mp3",
+        "D#7": "Ds7.mp3",
+        "F#7": "Fs7.mp3",
+        "A7": "A7.mp3",
+        "C8": "C8.mp3"
+      },
+      release: 1,
+      baseUrl: "https://tonejs.github.io/audio/salamander/"
+    }).toDestination();
+  } else {
+    return new Tone.PolySynth(Tone.Synth, {
+      oscillator: instruments[type].oscillator,
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.6 }
+    }).connect(delay);
+  }
+}
+
+function initSynth() {
+  if (synth) synth.dispose();
+  synth = createSynth(currentInstrument);
+}
+initSynth();
+
+// Convert note + octave to MIDI note number
+function noteToMidi(note) {
+  let n = note.slice(0, -1);
+  let octave = parseInt(note.slice(-1));
+  let index = noteNames.indexOf(n);
+  if (index < 0) return null;
+  return 12 * (octave + 1) + index; // MIDI standard: C4 = 60
+}
+
+// Transpose note by semitones and return note name + octave
+function transpose(note, semitones) {
+  let n = note.slice(0, -1);
+  let octave = parseInt(note.slice(-1));
+  let index = noteNames.indexOf(n);
+  if (index < 0) return null;
+
+  let newIndex = index + semitones;
+  let newOctave = octave;
+  while (newIndex < 0) {
+    newIndex += 12;
+    newOctave--;
+  }
+  while (newIndex >= 12) {
+    newIndex -= 12;
+    newOctave++;
+  }
+  return noteNames[newIndex] + newOctave;
+}
+
+// Build scale notes for given root note and scale type, at given octave base
+function buildScale(rootNote, scaleName, octave) {
+  let rootIndex = noteNames.indexOf(rootNote);
+  if (rootIndex < 0) return [];
+  let intervals = scaleIntervals[scaleName];
+  if (!intervals) intervals = scaleIntervals['hiraJoshi'];
+  return intervals.map(i => {
+    let totalIndex = rootIndex + i;
+    let noteName = noteNames[totalIndex % 12];
+    let noteOctave = octave + Math.floor(totalIndex / 12);
+    return noteName + noteOctave;
+  });
+}
+
+// ==========================
+// VISUAL PARAMETERS (p5.js)
+// ==========================
+let n = 50;
+let particles = [];
+let minV = 0.0001;
+let maxV = 0.000101;
+let k; // dynamic side length
+
+// Current scale and key
+let currentScale = 'hiraJoshi';
+let currentKey = 'D';
+
+// Precomputed sides' note arrays (4 sides, 4 octaves)
+let sides = [];
+
+function buildParticles() {
+  particles = [];
+  const total = (n + 1) * 4;
+  for (let i = 0; i <= n; i++) {
+    const t = (k / n) * i;
+    const idx = i * 4;
+    const v = [
+      map(idx, 0, total, minV, maxV),
+      map(idx + 1, 0, total, minV, maxV),
+      map(idx + 2, 0, total, minV, maxV),
+      map(idx + 3, 0, total, minV, maxV)
+    ];
+    particles.push({ side: 0, x1: t, y1: 0, x2: k, y2: t, p: 0, dir: 1, speed: v[0] });
+    particles.push({ side: 1, x1: k, y1: t, x2: k - t, y2: k, p: 0, dir: 1, speed: v[1] });
+    particles.push({ side: 2, x1: k - t, y1: k, x2: 0, y2: k - t, p: 0, dir: 1, speed: v[2] });
+    particles.push({ side: 3, x1: 0, y1: k - t, x2: t, y2: 0, p: 0, dir: 1, speed: v[3] });
+  }
+}
+
+function buildSidesNotes() {
+  // For each side, build the scale notes at octave 1 to 4
+  sides = [
+    buildScale(currentKey, currentScale, 1), // Bottom
+    buildScale(currentKey, currentScale, 2), // Right
+    buildScale(currentKey, currentScale, 3), // Top
+    buildScale(currentKey, currentScale, 4)  // Left
+  ];
+}
+
+function setup() {
+  k = min(windowWidth, windowHeight) * 0.6;
+  createCanvas(windowWidth, windowHeight);
+  noFill();
+  strokeWeight(1.2);
+  buildSidesNotes();
+  buildParticles();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  k = min(windowWidth, windowHeight) * 0.6;
+  buildParticles();
+}
+
+function draw() {
+  background(10);
+  translate(width / 2 - k / 2, height / 2 + k / 2);
+  scale(1, -1);
+
+  // Black inner square
+  fill(0);
+  stroke(0);
+  rect(0, 0, k, k);
+
+  // Cyan lines
+  noFill();
+  stroke(0, 255, 255, 100);
+  for (let p of particles) {
+    line(p.x1, p.y1, p.x2, p.y2);
+  }
+
+  // Red moving particles
+  noStroke();
+  fill(255, 0, 0);
+  for (let p of particles) {
+    p.p += p.speed * p.dir;
+
+    // Collision detection at line ends
+    if (p.p > 1 || p.p < 0) {
+      p.dir *= -1;
+      if (audioStarted) {
+        let note = random(sides[p.side]);
+        let pan = map(p.side, 0, 3, -0.8, 0.8); // stereo placement by side
+        if (currentInstrument === 'piano') {
+          synth.triggerAttackRelease(note, "8n", Tone.now(), 0.2);
+        } else {
+          synth.set({ detune: random(-10, 10) });
+          synth.triggerAttackRelease(note, "8n", Tone.now(), 0.2);
+        }
+      }
+    }
+
+    let x = lerp(p.x1, p.x2, p.p);
+    let y = lerp(p.y1, p.y2, p.p);
+    ellipse(x, y, 6, 6);
+  }
+}
+
+// ==========================
+// AUDIO CONTROLS
+// ==========================
+let audioStarted = false;
+function mousePressed() {
+  if (!audioStarted) {
+    Tone.start();
+    audioStarted = true;
+    console.log("Audio context started");
+  }
+}
+
+document.getElementById('instrument').addEventListener('change', (e) => {
+  currentInstrument = e.target.value;
+  initSynth();
+});
+
+document.getElementById('scale').addEventListener('change', (e) => {
+  currentScale = e.target.value;
+  buildSidesNotes();
+});
+
+document.getElementById('key').addEventListener('change', (e) => {
+  currentKey = e.target.value;
+  buildSidesNotes();
+});
+</script>
+</body>
+</html>
